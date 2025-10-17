@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Feedback Tester (GPT)</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 2rem; }
+    h1 { margin: 0 0 1rem; }
+    form, .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+    label { display:block; font-weight:600; margin-top:.5rem; }
+    input[type="text"], textarea { width:100%; padding:.6rem .7rem; border:1px solid #ccc; border-radius:8px; font-size:14px; }
+    textarea { min-height:100px; }
+    button { border:0; border-radius:10px; padding:.6rem .9rem; font-weight:700; background:black; color:white; cursor:pointer; margin-right:.5rem; }
+    button.secondary { background:#444; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:.5rem; border-bottom:1px solid #eee; vertical-align:top; }
+    code { background:#f5f5f5; padding:.15rem .35rem; border-radius:4px; }
+    .pill { display:inline-block; padding:.1rem .45rem; border-radius:999px; font-size:12px; font-weight:700; }
+    .pos { background:#e9f9ef; color:#0a7c2f; }
+    .neu { background:#eef1f5; color:#3a3f45; }
+    .neg { background:#fdecec; color:#b11d1d; }
+    .muted { color:#666; font-size:13px; }
+    .stack { display:grid; gap:.6rem; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+    @media (max-width: 900px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Feedback Tester (GPT)</h1>
+  <div class="grid">
+    <form id="feedback-form" class="card">
+      <h2>Submit Feedback</h2>
+      <div class="stack">
+        <div>
+          <label for="customer_id">Customer ID</label>
+          <input id="customer_id" placeholder="e.g., cust_123" required>
+        </div>
+        <div>
+          <label for="message">Message</label>
+          <textarea id="message" placeholder="Write the feedback message..." required></textarea>
+        </div>
+        <div>
+          <button type="submit">Submit</button>
+          <button type="button" id="prefill" class="secondary">Prefill negative</button>
+        </div>
+        <div id="submit-result" class="muted"></div>
+      </div>
+    </form>
+
+    <div class="card">
+      <h2>Alerts</h2>
+      <p class="muted">Negative sentiment triggers an alert.</p>
+      <div style="margin-bottom:.5rem;">
+        <button id="refresh-alerts">Refresh alerts</button>
+        <label style="margin-left:.5rem; font-weight:400;">
+          <input type="checkbox" id="auto"> auto (5s)
+        </label>
+      </div>
+      <table id="alerts-table">
+        <thead><tr><th>ID</th><th>Feedback ID</th><th>Reason</th><th>Created</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recent Feedback</h2>
+    <div style="margin-bottom:.5rem;">
+      <button id="refresh-feedback">Refresh feedback</button>
+      <span class="muted">Filter by customer:</span>
+      <input id="filter-id" placeholder="cust_123" style="width:200px; display:inline-block;">
+    </div>
+    <table id="feedback-table">
+      <thead>
+        <tr><th>ID</th><th>Customer</th><th>Message</th><th>Sentiment</th><th>Score</th><th>Topic</th><th>Created</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+const base = '';
+const pill = (l)=>`<span class="pill ${l==='positive'?'pos':l==='negative'?'neg':'neu'}">${l}</span>`;
+
+async function submitFeedback(ev){
+  ev.preventDefault();
+  const customer_id = document.getElementById('customer_id').value.trim();
+  const message = document.getElementById('message').value.trim();
+  const out = document.getElementById('submit-result');
+  out.textContent = 'Submitting...';
+  try {
+    const res = await fetch(`${base}/feedback`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({customer_id, message})
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail || res.statusText);
+    out.textContent = `Created #${data.id} — ${data.sentiment_label} / ${data.topic}`;
+    loadFeedback(); loadAlerts();
+  } catch (e) { out.textContent = 'Error: ' + e.message; }
+}
+
+async function loadFeedback(){
+  const id = document.getElementById('filter-id').value.trim();
+  const url = id ? `${base}/feedback?customer_id=${encodeURIComponent(id)}` : `${base}/feedback`;
+  const res = await fetch(url); const data = await res.json();
+  const tbody = document.querySelector('#feedback-table tbody'); tbody.innerHTML = '';
+  (data||[]).forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.id}</td>
+      <td><code>${r.customer_id}</code></td>
+      <td>${r.message.replace(/</g,'&lt;')}</td>
+      <td>${pill(r.sentiment_label)}</td>
+      <td>${(r.sentiment_score ?? 0).toFixed(3)}</td>
+      <td><code>${r.topic}</code></td>
+      <td>${new Date(r.created_at).toLocaleString()}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadAlerts(){
+  const res = await fetch(`${base}/alerts`); const data = await res.json();
+  const tbody = document.querySelector('#alerts-table tbody'); tbody.innerHTML = '';
+  (data||[]).forEach(a=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${a.id}</td><td>${a.feedback_id}</td><td><code>${a.reason}</code></td><td>${new Date(a.created_at).toLocaleString()}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function prefill(){
+  document.getElementById('customer_id').value = 'cust_demo';
+  document.getElementById('message').value = 'Delivery was late and the package was damaged. Terrible experience.';
+}
+
+let timer=null;
+function toggleAuto(ev){ if(ev.target.checked){ timer=setInterval(loadAlerts,5000);} else { clearInterval(timer); timer=null; } }
+
+document.getElementById('feedback-form').addEventListener('submit', submitFeedback);
+document.getElementById('refresh-feedback').addEventListener('click', loadFeedback);
+document.getElementById('refresh-alerts').addEventListener('click', loadAlerts);
+document.getElementById('prefill').addEventListener('click', prefill);
+document.getElementById('auto').addEventListener('change', toggleAuto);
+
+loadFeedback(); loadAlerts();
+</script>
+</body>
+</html>
