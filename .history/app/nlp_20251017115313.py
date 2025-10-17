@@ -28,9 +28,9 @@ def analyze(text: str) -> Tuple[str, float, str]:
         if any(x in t for x in ["great", "excellent", "love"]):
             return "positive", 0.8, "product_quality"
         return "neutral", 0.0, "other"
-    
+
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model = os.getenv("GPT_MODEL", "gpt-4.1-nano")
+    model = os.getenv("GPT_MODEL", "gpt-4.1-mini")
 
     system = (
         "You are an assistant that analyzes customer feedback. "
